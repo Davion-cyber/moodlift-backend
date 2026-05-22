@@ -1,4 +1,37 @@
-import { validateRequest, sanitizeInput } from './middleware.js';
+const rateLimitStore = new Map();
+
+function rateLimit(ip) {
+  const now = Date.now();
+  const window = 15 * 60 * 1000;
+  const max = 20;
+  const record = rateLimitStore.get(ip);
+  if (!record || now > record.resetTime) {
+    rateLimitStore.set(ip, { count: 1, resetTime: now + window });
+    return true;
+  }
+  if (record.count >= max) return false;
+  record.count++;
+  return true;
+}
+
+const MOOD_SEARCH = {
+  happy:   'feel good happy upbeat',
+  sad:     'sad emotional heartbreak',
+  anxious: 'calm anxiety relief soothing',
+  angry:   'anger intense powerful',
+  calm:    'peaceful calm relaxing',
+  tired:   'sleep relax soft gentle',
+  excited: 'excited energetic hype party',
+  numb:    'melancholy introspective indie',
+};
+
+function getMoodKey(moodText) {
+  const lower = moodText.toLowerCase();
+  for (const key of Object.keys(MOOD_SEARCH)) {
+    if (lower.includes(key)) return key;
+  }
+  return 'calm';
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -8,31 +41,13 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  if (!validateRequest(req, res)) return;
+  const ip = req.headers['x-forwarded-for'] || 'unknown';
+  if (!rateLimit(ip)) return res.status(429).json({ error: 'Too many requests' });
 
-  const rawMood = req.body?.mood;
-  const mood = sanitizeInput(rawMood);
-
-  if (!mood) return res.status(400).json({ error: 'Invalid or missing mood input' });
-
-  const MOOD_SEARCH = {
-    happy:   { query: 'feel good happy upbeat', valence: [0.7, 1.0], energy: [0.6, 1.0] },
-    sad:     { query: 'sad emotional heartbreak', valence: [0.0, 0.4], energy: [0.1, 0.5] },
-    anxious: { query: 'calm anxiety relief soothing', valence: [0.3, 0.6], energy: [0.2, 0.5] },
-    angry:   { query: 'anger intense powerful', valence: [0.1, 0.4], energy: [0.7, 1.0] },
-    calm:    { query: 'peaceful calm relaxing', valence: [0.5, 0.8], energy: [0.1, 0.4] },
-    tired:   { query: 'sleep relax soft gentle', valence: [0.3, 0.6], energy: [0.0, 0.3] },
-    excited: { query: 'excited energetic hype party', valence: [0.8, 1.0], energy: [0.8, 1.0] },
-    numb:    { query: 'melancholy introspective indie', valence: [0.2, 0.5], energy: [0.2, 0.5] },
-  };
-
-  const getMoodKey = (moodText) => {
-    const lower = moodText.toLowerCase();
-    for (const key of Object.keys(MOOD_SEARCH)) {
-      if (lower.includes(key)) return key;
-    }
-    return 'calm';
-  };
+  const mood = req.body?.mood;
+  if (!mood || typeof mood !== 'string' || mood.length > 500) {
+    return res.status(400).json({ error: 'Invalid mood input' });
+  }
 
   try {
     const credentials = Buffer.from(
@@ -50,18 +65,22 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenRes.json();
     const token = tokenData.access_token;
+
     if (!token) return res.status(500).json({ error: 'Could not get Spotify token' });
 
     const moodKey = getMoodKey(mood);
-    const params = MOOD_SEARCH[moodKey];
+    const query = MOOD_SEARCH[moodKey];
 
     const searchRes = await fetch(
-      `https://api.spotify.com/v1/search?q=${encodeURIComponent(params.query)}&type=track&limit=50`,
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=50`,
       { headers: { 'Authorization': 'Bearer ' + token } }
     );
 
     const searchData = await searchRes.json();
-    if (!searchData.tracks?.items?.length) return res.status(404).json({ error: 'No tracks found' });
+
+    if (!searchData.tracks?.items?.length) {
+      return res.status(404).json({ error: 'No tracks found' });
+    }
 
     const pool = searchData.tracks.items.filter(t => t.preview_url);
     const tracks = pool.length > 0 ? pool : searchData.tracks.items;
@@ -75,6 +94,6 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    return res.status(500).json({ error: 'Server error' });
+    return res.status(500).json({ error: 'Server error: ' + error.message });
   }
 }
