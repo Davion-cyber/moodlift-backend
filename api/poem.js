@@ -13,9 +13,7 @@ export default async function handler(req, res) {
   const rawMood = req.body?.mood;
   const mood = sanitizeInput(rawMood);
 
-  if (!mood) {
-    return res.status(400).json({ error: 'Invalid or missing mood input' });
-  }
+  if (!mood) return res.status(400).json({ error: 'Invalid or missing mood input' });
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -26,8 +24,6 @@ export default async function handler(req, res) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-    
-        
         model: 'claude-sonnet-4-5',
         max_tokens: 1000,
         messages: [{
