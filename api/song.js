@@ -15,14 +15,15 @@ function rateLimit(ip) {
 }
 
 const MOOD_SEARCH = {
-  happy:   'feel good happy upbeat',
-  sad:     'sad emotional heartbreak',
-  anxious: 'calm anxiety relief soothing',
-  angry:   'anger intense powerful',
-  calm:    'peaceful calm relaxing',
-  tired:   'sleep relax soft gentle',
-  excited: 'excited energetic hype party',
-  numb:    'melancholy introspective indie',
+  happy:   { query: 'happy' },
+  sad:     { query: 'sad' },
+  anxious: { query: 'relax' },
+  angry:   { query: 'rock' },
+  calm:    { query: 'chill' },
+  tired:   { query: 'sleep' },
+  excited: { query: 'party' },
+  numb:    { query: 'indie' },
+};
 };
 
 function getMoodKey(moodText) {
