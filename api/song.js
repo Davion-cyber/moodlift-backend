@@ -9,20 +9,20 @@ export default async function handler(req, res) {
   const { mood } = req.body;
   if (!mood) return res.status(400).json({ error: 'Mood is required' });
 
-  const MOOD_MAP = {
-    happy:   { valence: 0.8, energy: 0.7, genre: 'pop' },
-    sad:     { valence: 0.2, energy: 0.3, genre: 'sad' },
-    anxious: { valence: 0.3, energy: 0.7, genre: 'ambient' },
-    angry:   { valence: 0.3, energy: 0.9, genre: 'rock' },
-    calm:    { valence: 0.6, energy: 0.3, genre: 'chill' },
-    tired:   { valence: 0.4, energy: 0.2, genre: 'sleep' },
-    excited: { valence: 0.9, energy: 0.9, genre: 'dance' },
-    numb:    { valence: 0.3, energy: 0.3, genre: 'indie' },
+  const MOOD_SEARCH = {
+    happy:   { query: 'feel good happy upbeat', valence: [0.7, 1.0], energy: [0.6, 1.0] },
+    sad:     { query: 'sad emotional heartbreak', valence: [0.0, 0.4], energy: [0.1, 0.5] },
+    anxious: { query: 'calm anxiety relief soothing', valence: [0.3, 0.6], energy: [0.2, 0.5] },
+    angry:   { query: 'anger intense powerful', valence: [0.1, 0.4], energy: [0.7, 1.0] },
+    calm:    { query: 'peaceful calm relaxing', valence: [0.5, 0.8], energy: [0.1, 0.4] },
+    tired:   { query: 'sleep relax soft gentle', valence: [0.3, 0.6], energy: [0.0, 0.3] },
+    excited: { query: 'excited energetic hype party', valence: [0.8, 1.0], energy: [0.8, 1.0] },
+    numb:    { query: 'melancholy introspective indie', valence: [0.2, 0.5], energy: [0.2, 0.5] },
   };
 
   const getMoodKey = (moodText) => {
     const lower = moodText.toLowerCase();
-    for (const key of Object.keys(MOOD_MAP)) {
+    for (const key of Object.keys(MOOD_SEARCH)) {
       if (lower.includes(key)) return key;
     }
     return 'calm';
@@ -45,31 +45,36 @@ export default async function handler(req, res) {
     const tokenData = await tokenRes.json();
     const token = tokenData.access_token;
 
-    if (!token) {
-      return res.status(500).json({ error: 'Could not get Spotify token' });
-    }
+    if (!token) return res.status(500).json({ error: 'Could not get Spotify token' });
 
     const moodKey = getMoodKey(mood);
-    const params = MOOD_MAP[moodKey];
+    const params = MOOD_SEARCH[moodKey];
 
-    const recRes = await fetch(
-      `https://api.spotify.com/v1/recommendations?limit=1&seed_genres=${params.genre}&target_valence=${params.valence}&target_energy=${params.energy}`,
+    const searchRes = await fetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(params.query)}&type=track&limit=50`,
       { headers: { 'Authorization': 'Bearer ' + token } }
     );
 
-    const recData = await recRes.json();
+    const searchData = await searchRes.json();
 
-    if (recData.tracks && recData.tracks.length > 0) {
-      const track = recData.tracks[0];
-      return res.status(200).json({
-        name: track.name,
-        artist: track.artists[0].name,
-        url: track.external_urls.spotify,
-        image: track.album.images[0]?.url || null,
-      });
-    } else {
+    if (!searchData.tracks || !searchData.tracks.items.length) {
       return res.status(404).json({ error: 'No tracks found' });
     }
+
+    const filtered = searchData.tracks.items.filter(track => {
+      return track.preview_url !== null;
+    });
+
+    const pool = filtered.length > 0 ? filtered : searchData.tracks.items;
+    const randomTrack = pool[Math.floor(Math.random() * Math.min(pool.length, 20))];
+
+    return res.status(200).json({
+      name: randomTrack.name,
+      artist: randomTrack.artists[0].name,
+      url: randomTrack.external_urls.spotify,
+      image: randomTrack.album.images[0]?.url || null,
+    });
+
   } catch (error) {
     return res.status(500).json({ error: 'Server error' });
   }
