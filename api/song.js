@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     var query = MOOD_SEARCH[moodKey];
 
     var searchRes = await fetch(
-      'https://api.spotify.com/v1/search?q=' + encodeURIComponent(query) + '&type=track&limit=50&market=US',
+     'https://api.spotify.com/v1/search?q=' + encodeURIComponent(query) + '&type=track&limit=20&market=US',
       { headers: { 'Authorization': 'Bearer ' + token } }
     );
 
