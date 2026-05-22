@@ -63,11 +63,15 @@ export default async function handler(req, res) {
     );
 
     var searchData = await searchRes.json();
-
-    if (!searchData.tracks || !searchData.tracks.items || searchData.tracks.items.length === 0) {
-      return res.status(404).json({ error: 'No tracks found' });
-    }
-
+    
+if (!searchData.tracks || !searchData.tracks.items || searchData.tracks.items.length === 0) {
+  return res.status(404).json({ 
+    error: 'No tracks found', 
+    tokenOk: !!token,
+    query: query,
+    spotifyResponse: JSON.stringify(searchData).substring(0, 300)
+  });
+}
     var tracks = searchData.tracks.items;
     var randomIndex = Math.floor(Math.random() * Math.min(tracks.length, 20));
     var track = tracks[randomIndex];
