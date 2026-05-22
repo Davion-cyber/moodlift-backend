@@ -1,3 +1,5 @@
+import { validateRequest, sanitizeInput } from './middleware.js';
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -6,8 +8,12 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { mood } = req.body;
-  if (!mood) return res.status(400).json({ error: 'Mood is required' });
+  if (!validateRequest(req, res)) return;
+
+  const rawMood = req.body?.mood;
+  const mood = sanitizeInput(rawMood);
+
+  if (!mood) return res.status(400).json({ error: 'Invalid or missing mood input' });
 
   const MOOD_SEARCH = {
     happy:   { query: 'feel good happy upbeat', valence: [0.7, 1.0], energy: [0.6, 1.0] },
@@ -44,7 +50,6 @@ export default async function handler(req, res) {
 
     const tokenData = await tokenRes.json();
     const token = tokenData.access_token;
-
     if (!token) return res.status(500).json({ error: 'Could not get Spotify token' });
 
     const moodKey = getMoodKey(mood);
@@ -56,23 +61,17 @@ export default async function handler(req, res) {
     );
 
     const searchData = await searchRes.json();
+    if (!searchData.tracks?.items?.length) return res.status(404).json({ error: 'No tracks found' });
 
-    if (!searchData.tracks || !searchData.tracks.items.length) {
-      return res.status(404).json({ error: 'No tracks found' });
-    }
-
-    const filtered = searchData.tracks.items.filter(track => {
-      return track.preview_url !== null;
-    });
-
-    const pool = filtered.length > 0 ? filtered : searchData.tracks.items;
-    const randomTrack = pool[Math.floor(Math.random() * Math.min(pool.length, 20))];
+    const pool = searchData.tracks.items.filter(t => t.preview_url);
+    const tracks = pool.length > 0 ? pool : searchData.tracks.items;
+    const track = tracks[Math.floor(Math.random() * Math.min(tracks.length, 20))];
 
     return res.status(200).json({
-      name: randomTrack.name,
-      artist: randomTrack.artists[0].name,
-      url: randomTrack.external_urls.spotify,
-      image: randomTrack.album.images[0]?.url || null,
+      name: track.name,
+      artist: track.artists[0].name,
+      url: track.external_urls.spotify,
+      image: track.album.images[0]?.url || null,
     });
 
   } catch (error) {
