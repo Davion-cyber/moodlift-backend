@@ -7,7 +7,7 @@ export default async function handler(req, res) {
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const redirectUri = 'https://moodlift-backend.vercel.app/api/spotify-callback';
-  const scopes = 'user-top-read user-read-recently-played';
+  const scopes = 'user-top-read user-read-recently-played playlist-modify-private playlist-modify-public';
 
   const authUrl = 'https://accounts.spotify.com/authorize?' +
     'client_id=' + clientId +
