@@ -1,62 +1,64 @@
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000;
-const MAX_REQUESTS = 5;
-const MAX_PAYLOAD_SIZE = 1000;
+// Rate limiter: tracks requests per IP using in-memory store
+// Allows 20 requests per minute per IP per endpoint
 
 const rateLimitStore = new Map();
 
-export function rateLimit(ip) {
-  const now = Date.now();
-  const key = `${ip}`;
-  const record = rateLimitStore.get(key);
+const WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS = 20;      // per window per IP
 
-  if (!record) {
-    rateLimitStore.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
-    return { allowed: true, remaining: MAX_REQUESTS - 1 };
-  }
-
-  if (now > record.resetTime) {
-    rateLimitStore.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
-    return { allowed: true, remaining: MAX_REQUESTS - 1 };
-  }
-
-  if (record.count >= MAX_REQUESTS) {
-    return { allowed: false, remaining: 0, resetTime: record.resetTime };
-  }
-
-  record.count++;
-  return { allowed: true, remaining: MAX_REQUESTS - record.count };
-}
-
-export function sanitizeInput(input) {
-  if (typeof input !== 'string') return null;
-  if (input.length > MAX_PAYLOAD_SIZE) return null;
-  return input
-    .replace(/<[^>]*>/g, '')
-    .replace(/[<>'"]/g, '')
-    .trim();
-}
-
+/**
+ * Validate and rate-limit an incoming request.
+ * Returns true if request is allowed, false if rejected (also sends the error response).
+ * @param {import('http').IncomingMessage} req
+ * @param {import('http').ServerResponse} res
+ * @returns {boolean}
+ */
 export function validateRequest(req, res) {
-  const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
-  const limit = rateLimit(ip);
-
-  res.setHeader('X-RateLimit-Remaining', limit.remaining);
-
-  if (!limit.allowed) {
-    res.status(429).json({
-      error: 'Too many requests. Please wait 15 minutes before trying again.',
-      resetTime: limit.resetTime,
-    });
+  // --- Body size check ---
+  const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+  if (contentLength > 10000) {
+    res.status(413).json({ error: 'Request too large' });
     return false;
   }
 
-  if (req.method === 'POST') {
-    const contentLength = parseInt(req.headers['content-length'] || '0');
-    if (contentLength > 5000) {
-      res.status(413).json({ error: 'Payload too large' });
+  // --- Rate limiting ---
+  const ip =
+    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
+    req.socket?.remoteAddress ||
+    'unknown';
+
+  const key = `${ip}:${req.url}`;
+  const now = Date.now();
+  const entry = rateLimitStore.get(key);
+
+  if (!entry || now > entry.windowStart + WINDOW_MS) {
+    // New window
+    rateLimitStore.set(key, { count: 1, windowStart: now });
+  } else {
+    entry.count += 1;
+    if (entry.count > MAX_REQUESTS) {
+      res.status(429).json({
+        error: 'Too many requests. Please wait a moment before trying again.',
+        retryAfter: Math.ceil((entry.windowStart + WINDOW_MS - now) / 1000),
+      });
       return false;
     }
   }
 
   return true;
+}
+
+/**
+ * Sanitize a string input — strip HTML tags, trim, limit length.
+ * @param {any} input
+ * @param {number} maxLength
+ * @returns {string}
+ */
+export function sanitizeInput(input, maxLength = 500) {
+  if (typeof input !== 'string') return '';
+  return input
+    .replace(/<[^>]*>/g, '')   // strip HTML tags
+    .replace(/[^\w\s.,!?'"()\-:;@#]/g, '') // strip unusual chars
+    .trim()
+    .slice(0, maxLength);
 }
